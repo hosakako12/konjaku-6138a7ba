@@ -440,8 +440,8 @@ const lowNow = d => d.low && mapR.getZoom() < d.minZ;
 const hidden = d => avail[d.key] === false || (mapR.getZoom() < d.minZ && !lowNow(d));
 function oldTail(d) {
   if (avail[d.key] === false) return '（この付近は無し）';
-  if (lowNow(d)) return `（広域なので20万分1地勢図を表示中。ズーム${d.minZ}以上で5万分1）`;
-  if (mapR.getZoom() < d.minZ) return `（ズーム${d.minZ}以上に拡大すると表示）`;
+  if (lowNow(d)) return '（広域なので20万分1地勢図を表示中。拡大すると5万分1が見られます）';
+  if (mapR.getZoom() < d.minZ) return '（拡大すると見られます）';
   return d.mw ? `（${mwHere(d)}）` : '';
 }
 function updateLabels() {
@@ -524,7 +524,7 @@ function updateHint() {
   const z = mapR.getZoom();
   const cur = curOld();
   const need = Math.max(lowNow(cur) ? cur.low.minZ : cur.minZ, st.mode === 'time' ? 0 : st.now.minZ);
-  $('hint').textContent = z < need ? `ズーム${need}以上で表示されます（今 ${z}）` : '';
+  $('hint').textContent = z < need ? `拡大すると見られます（ズーム${need}以上。今 ${z}）` : '';
 }
 function saveState() {
   const c = mapR.getCenter(), z = mapR.getZoom();
@@ -754,9 +754,12 @@ function renderHere() {
     return e;
   };
   const chip = (d, text) => {
-    const c = el('span', 'chip' + (d === cur ? ' on' : '') + (avail[d.key] === false ? ' no' : ''), text);
+    const zoom = avail[d.key] !== false && mapR.getZoom() < d.minZ && !d.low;
+    const c = el('span', 'chip' + (d === cur ? ' on' : '') + (avail[d.key] === false ? ' no' : ''),
+      text + (zoom ? '（拡大すると見られます）' : ''));
     c.title = d.name;
-    if (avail[d.key] !== false) c.onclick = () => pickOld(d);
+    // 拡大しないと出ない図は、押したら見られるところまで拡大する
+    if (avail[d.key] !== false) c.onclick = () => { pickOld(d); if (zoom) mapR.setZoom(d.minZ); };
     return c;
   };
   const row = (label, src, chips) => {
@@ -781,7 +784,8 @@ function renderHere() {
     if (!r) return;
     const label = { mw50k:'5万分1', mw200c:'20万分1地勢図', mw200t:'20万分1帝国図' }[d.key];
     const when = d === MW_DEF ? sheetYear(r) : d === TEIKOKU_DEF ? '1906〜44年のいずれか' : '戦前';
-    hereBox.append(row(label, `図幅「${r[5]}」`, [chip(d, when)]));
+    hereBox.append(row(label, `図幅「${r[5]}」` + (lowNow(d) ? '（拡大すると見られます。今は20万分1で代用）' : ''),
+      [chip(d, when)]));
   });
   if (!kjHere.length) hereBox.append(el('div', 'miss', '今昔マップ（年代別の地形図）はこの付近に無し'));
 
