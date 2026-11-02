@@ -145,6 +145,7 @@
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
   integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="mw-index.js"></script>
 <script>
 const GSI = 'https://cyberjapandata.gsi.go.jp/xyz/';
 const SRC = '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>';
@@ -189,7 +190,72 @@ function kjDef(set, e) {
       max: ['kanto', 'tohoku_pacific_coast'].includes(set.f) ? 15 : 16 }],
   };
 }
+// 全国の戦前5万分1地形図（日本版MapWarper）。図幅ごとに別の画像なので、見えている図幅だけを重ねる
+const MW_ATTR = '<a href="https://mapwarper.h-gis.jp/" target="_blank" rel="noopener">日本版MapWarper</a>' +
+  '（Image from the Map Collections courtesy Stanford University Libraries, CC BY-NC 3.0. © Stanford University.）';
+const MW_DEF = { key:'mw50k', name:'5万分1地形図（戦前・全国）', short:'戦前', minZ:11, mw:true, layers:[] };
+
+// 旧日本測地系→世界測地系の近似式（国土地理院）。図郭は旧測地系の経度15分×緯度10分で切られている
+const tokyoToWgs = (la, lo) => [la - 0.00010695 * la + 0.000017464 * lo + 0.0046017,
+  lo - 0.000046038 * la - 0.000083043 * lo + 0.010040];
+function sheetRect(r) {
+  let la = (r[2] + r[4]) / 2, lo = (r[1] + r[3]) / 2;
+  const [wla, wlo] = tokyoToWgs(la, lo);
+  la -= wla - la; lo -= wlo - lo;
+  const s = Math.floor(la * 6) / 6, w = Math.floor(lo * 4) / 4;
+  return L.latLngBounds(tokyoToWgs(s, w), tokyoToWgs(s + 1 / 6, w + 0.25));
+}
+const MW_RECT = MW.map(sheetRect);
+const sheetAt = ll => MW.find((r, i) => MW_RECT[i].contains(ll));
+const sheetYear = r => r[6] ? r[6] + '年' : '年不明';
+
+// 余白（図郭の外）を切り落として描くタイル
+const ClipTiles = L.GridLayer.extend({
+  createTile(coords, done) {
+    const size = this.getTileSize(), canvas = document.createElement('canvas');
+    canvas.width = size.x; canvas.height = size.y;
+    const img = new Image();
+    img.onload = () => {
+      const ctx = canvas.getContext('2d'), o = coords.scaleBy(size);
+      const nw = this._map.project(this.options.rect.getNorthWest(), coords.z).subtract(o);
+      const se = this._map.project(this.options.rect.getSouthEast(), coords.z).subtract(o);
+      ctx.beginPath(); ctx.rect(nw.x, nw.y, se.x - nw.x, se.y - nw.y); ctx.clip();
+      ctx.drawImage(img, 0, 0, size.x, size.y);
+      done(null, canvas);
+    };
+    img.onerror = () => done(null, canvas);
+    img.src = `https://mapwarper.h-gis.jp/maps/tile/${this.options.id}/${coords.z}/${coords.x}/${coords.y}.png`;
+    return canvas;
+  },
+});
+const MWGroup = L.LayerGroup.extend({
+  onAdd(map) {
+    L.LayerGroup.prototype.onAdd.call(this, map);
+    this._upd = () => this.update();
+    map.on('moveend', this._upd);
+    this.update();
+  },
+  onRemove(map) {
+    map.off('moveend', this._upd);
+    L.LayerGroup.prototype.onRemove.call(this, map);
+  },
+  update() {
+    const map = this._map, shown = this._shown ||= {};
+    const view = map.getBounds().pad(0.3);
+    const want = map.getZoom() < MW_DEF.minZ ? [] :
+      MW.map((r, i) => i).filter(i => MW_RECT[i].intersects(view)).slice(0, 30);
+    Object.keys(shown).forEach(i => { if (!want.includes(+i)) { this.removeLayer(shown[i]); delete shown[i]; } });
+    want.forEach(i => {
+      if (shown[i]) return;
+      shown[i] = new ClipTiles({ id:MW[i][0], rect:MW_RECT[i], bounds:MW_RECT[i], pane:this.options.pane,
+        maxZoom:18, zIndex:MW[i][6] || 1, attribution:MW_ATTR });
+      this.addLayer(shown[i]);
+    });
+  },
+});
+
 function findOld(key) {
+  if (key === 'mw50k') return MW_DEF;
   if (key && key.startsWith('kj:')) {
     const [, f, folder] = key.split(':');
     const set = KJ.find(s => s.f === f), e = set && set.e.find(x => x[1] === folder);
@@ -225,6 +291,7 @@ const MODES = ['split', 'swipe', 'fade', 'time'];
 
 function tileUrl(l) { return l.url || GSI + l.id + '/{z}/{x}/{y}.' + l.ext; }
 function makeLayer(def, pane) {
+  if (def.mw) return new MWGroup([], { pane });
   const attr = def.kj ? KJ_ATTR :
     SRC + (def.photo ? '（空中写真：国土地理院' + (def.attr ? '、' + def.attr : '') + '）' : '');
   return L.layerGroup(def.layers.map((l, k) =>
@@ -271,9 +338,16 @@ const oldPane = mapR.getPane('oldPane');
 const $ = id => document.getElementById(id);
 
 // 年代モードの段階。地形図はこの付近の地域（データセット）の時期＋最新の標準地図
+// 今昔マップに無い地域では、全国の戦前5万分1地形図と最新の標準地図の2段階になる
 function timeSteps() {
-  if (st.kind === 'photo' || !st.kjSet) return ERAS;
+  if (st.kind === 'photo') return ERAS;
+  if (!st.kjSet) return [MW_DEF, LATEST_MAP];
   return [...st.kjSet.e.map(e => kjDef(st.kjSet, e)), LATEST_MAP];
+}
+// 地図の中心にある戦前5万分1の図幅名と年（ラベル用）
+function mwHere() {
+  const r = sheetAt(mapR.getCenter());
+  return r ? `図幅「${r[5]}」${sheetYear(r)}` : 'この付近の図幅なし';
 }
 const curOld = () => st.mode === 'time' ? timeSteps()[st.era] : st.old;
 
@@ -293,9 +367,10 @@ function renderTime() {
   const steps = timeSteps(), e = steps[st.era];
   $('era').max = steps.length - 1;
   $('era').value = st.era;
-  $('eraName').textContent = e.kj ? e.name.replace(/^地形図 /, '').replace(/（.*$/, '') : e.name;
+  $('eraName').textContent = e.kj ? e.name.replace(/^地形図 /, '').replace(/（.*$/, '') :
+    e.mw ? '戦前の5万分1' : e.name;
   $('eraNote').textContent = e.kj ? `地形図（${e.set.n}）・今昔マップ on the web` :
-    (st.kind === 'map' && !st.kjSet ? 'この付近の旧版地形図は今昔マップに収録されていません' : e.note);
+    e.mw ? mwHere() + '・日本版MapWarper' : e.note;
   document.querySelectorAll('#kinds button').forEach(b => b.classList.toggle('on', b.dataset.kind === st.kind));
   const ticks = $('ticks');
   ticks.innerHTML = '';
@@ -311,8 +386,9 @@ function renderTime() {
 
 function updateLabels() {
   const cur = curOld(), none = avail[cur.key] === false;
-  const tail = none ? '（この付近は無し）' : '';
-  $('labelL').textContent = '昔：' + st.old.name + (avail[st.old.key] === false ? '（この付近は無し）' : '');
+  const tail = cur.mw ? `（${mwHere()}）` : none ? '（この付近は無し）' : '';
+  $('labelL').textContent = '昔：' + st.old.name +
+    (st.old.mw ? `（${mwHere()}）` : avail[st.old.key] === false ? '（この付近は無し）' : '');
   $('labelL').classList.toggle('none', avail[st.old.key] === false);
   $('labelR').textContent = {
     split: '今：' + st.now.name,
@@ -437,6 +513,7 @@ function probeAll() {
         return probeDef(d, c, Math.max(10, Math.min(Math.round(mapR.getZoom()), d.layers[0].max)));
       })),
     ]);
+    avail[MW_DEF.key] = !!sheetAt(c);
     if (!st.kjSet || !kjHere.includes(st.kjSet)) {
       const next = kjHere[0] || null;
       if (next !== st.kjSet) { st.kjSet = next; if (st.mode === 'time' && st.kind === 'map') { st.era = 0; applyLayers(); } }
@@ -454,6 +531,10 @@ function buildOldOptions() {
   sel.innerHTML = '';
   const add = (parent, d) => parent.appendChild(
     new Option(d.name + (avail[d.key] === false ? '（この付近なし）' : ''), d.key, false, d === st.old));
+  const gm = document.createElement('optgroup');
+  gm.label = '旧版地形図（全国）日本版MapWarper';
+  add(gm, MW_DEF);
+  sel.appendChild(gm);
   const sets = [...kjHere];
   if (st.old.kj && !sets.includes(st.old.set)) sets.push(st.old.set);
   sets.forEach(set => {
