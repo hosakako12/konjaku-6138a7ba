@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>今昔比較マップ</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<style>
+  :root { --bg:#fff; --panel:rgba(255,255,255,.96); --fg:#1d2733; --muted:#5f6b78; --line:#d6dbe1;
+    --accent:#2f6fb0; --accent-fg:#fff; --hover:#eef4fb; --warn:#a05a00; --maparea:#e8eaed; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#161b22; --panel:rgba(22,27,34,.95); --fg:#e3e8ee; --muted:#9aa6b2; --line:#36404c;
+      --accent:#5b9bd8; --accent-fg:#0d1117; --hover:#22303f; --warn:#e0a050; --maparea:#2a2f36; color-scheme:dark; }
+  }
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--fg);
+    font-family:-apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", sans-serif; }
+  body { display:flex; flex-direction:column; }
+  header { display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; font-size:13px;
+    padding:6px max(10px, env(safe-area-inset-right)) 6px max(10px, env(safe-area-inset-left));
+    padding-top:max(6px, env(safe-area-inset-top));
+    border-bottom:1px solid var(--line); position:relative; z-index:1100; background:var(--bg); }
+  header h1 { font-size:15px; margin:0 4px 0 0; }
+  select, input[type=search], button { font:inherit; padding:5px 8px; border:1px solid var(--line);
+    border-radius:6px; background:var(--bg); color:var(--fg); }
+  select { max-width:240px; }
+  button { cursor:pointer; white-space:nowrap; }
+  button:hover, select:hover { border-color:var(--accent); }
+  :focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+  .grp { display:flex; align-items:center; gap:4px; }
+  .seg { gap:0; }
+  .seg button { border-radius:0; margin-left:-1px; }
+  .seg button:first-child { border-radius:6px 0 0 6px; margin-left:0; }
+  .seg button:last-child { border-radius:0 6px 6px 0; }
+  .seg button.on { background:var(--accent); color:var(--accent-fg); border-color:var(--accent); position:relative; }
+  .step { padding:5px 7px; }
+  #q { width:200px; }
+  #results { position:absolute; top:100%; left:10px; width:min(360px, calc(100vw - 20px)); max-height:50vh;
+    overflow:auto; background:var(--bg); border:1px solid var(--line); border-radius:8px;
+    box-shadow:0 2px 10px rgba(0,0,0,.2); }
+  #results div { padding:8px 12px; cursor:pointer; }
+  #results div:hover { background:var(--hover); }
+  #hint { color:var(--warn); }
+  a { color:var(--accent); }
+  #maps { flex:1; display:flex; position:relative; min-height:0; }
+  .map { flex:1; position:relative; background:var(--maparea); }
+  #mapL { border-right:2px solid var(--bg); }
+  body:not(.split) #mapL { display:none; }
+  .label { position:absolute; top:8px; left:50%; transform:translateX(-50%); z-index:800; max-width:80%;
+    background:rgba(29,39,51,.82); color:#fff; font-size:12px; padding:3px 10px; border-radius:12px;
+    pointer-events:none; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .label.none { background:rgba(160,90,0,.9); }
+  .cross { position:absolute; left:50%; top:50%; width:22px; height:22px; margin:-11px 0 0 -11px;
+    z-index:700; pointer-events:none; }
+  .cross:before, .cross:after { content:""; position:absolute; background:rgba(220,0,0,.85); }
+  .cross:before { left:10px; top:0; width:2px; height:22px; }
+  .cross:after { top:10px; left:0; height:2px; width:22px; }
+  body.nocross .cross { display:none; }
+  #ratioGrp, #timeBox { display:none; }
+  body.swipe #ratioGrp, body.fade #ratioGrp { display:flex; }
+  body.time #timeBox { display:block; }
+  body.time .oldOnly, body.time .newOnly { display:none; }
+  #swipeLine { position:absolute; top:0; bottom:0; width:3px; margin-left:-1.5px; background:#fff;
+    box-shadow:0 0 4px rgba(0,0,0,.6); z-index:750; display:none; pointer-events:none; }
+  body.swipe #swipeLine { display:block; }
+  #handle { position:absolute; top:50%; left:50%; width:34px; height:34px; margin:-17px 0 0 -17px;
+    border-radius:50%; background:#fff; box-shadow:0 1px 5px rgba(0,0,0,.5); pointer-events:auto;
+    cursor:ew-resize; touch-action:none; display:flex; align-items:center; justify-content:center;
+    color:#333; font-size:13px; user-select:none; }
+  #timeBox { position:absolute; z-index:900; left:50%; transform:translateX(-50%);
+    bottom:calc(28px + env(safe-area-inset-bottom)); width:min(680px, calc(100% - 20px));
+    background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:8px 14px 6px;
+    box-shadow:0 2px 10px rgba(0,0,0,.2); }
+  #eraHead { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+  #eraHead b { font-size:20px; }
+  #eraHead span { font-size:12px; color:var(--muted); }
+  #era { width:100%; accent-color:var(--accent); margin:4px 0 0; }
+  #ticks { display:flex; font-size:12px; color:var(--muted); }
+  #ticks span { flex:1; text-align:center; cursor:pointer; padding:2px 0; }
+  #ticks span:first-child { text-align:left; } #ticks span:last-child { text-align:right; }
+  #ticks span.on { color:var(--accent); font-weight:700; }
+  #ticks span.none { text-decoration:line-through; opacity:.6; }
+  .leaflet-control-attribution { font-size:11px; }
+  @media (max-width:720px) {
+    header h1, .wide { display:none; }
+    select { max-width:42vw; }
+    #q { width:auto; flex:1; min-width:0; }
+    .grp.search { flex:1 1 100%; }
+    #maps { flex-direction:column; }
+    #mapL { border-right:0; border-bottom:2px solid var(--bg); }
+  }
+</style>
+</head>
+<body class="split">
+<header>
+  <h1>今昔比較マップ</h1>
+  <div class="grp oldOnly">昔
+    <button class="step" id="prevOld" title="ひとつ前の年代">◀</button>
+    <select id="oldSel"></select>
+    <button class="step" id="nextOld" title="ひとつ後の年代">▶</button>
+  </div>
+  <div class="grp newOnly">今 <select id="newSel"></select></div>
+  <div class="grp seg" id="modes">
+    <button data-mode="split" class="on" title="左右に並べる（1）">左右</button>
+    <button data-mode="swipe" title="境目を動かして比べる（2）">スワイプ</button>
+    <button data-mode="fade" title="昔の写真を透かす（3）">透過</button>
+    <button data-mode="time" title="5つの年代を切り替える（4）">年代</button>
+  </div>
+  <div class="grp" id="ratioGrp"><input id="ratio" type="range" min="0" max="100" value="50" aria-label="比較の割合"></div>
+  <div class="grp search">
+    <input id="q" type="search" placeholder="地名・住所・緯度経度で検索" enterkeyhint="search">
+    <button id="go">検索</button>
+    <button id="loc">現在地</button>
+    <button id="copy">URLコピー</button>
+  </div>
+  <div class="grp wide">
+    <label><input type="checkbox" id="crossChk" checked> 十字線</label>
+    <a id="gsiLink" href="https://maps.gsi.go.jp/" target="_blank" rel="noopener">地理院地図で開く</a>
+  </div>
+  <span id="hint"></span>
+  <div id="results" hidden></div>
+</header>
+<div id="maps">
+  <div id="mapL" class="map"><div class="label" id="labelL"></div><div class="cross"></div></div>
+  <div id="mapR" class="map">
+    <div class="label" id="labelR"></div><div class="cross"></div>
+    <div id="swipeLine"><div id="handle" title="ドラッグで境目を動かす">⇔</div></div>
+    <div id="timeBox">
+      <div id="eraHead"><b id="eraName"></b><span id="eraNote"></span></div>
+      <input id="era" type="range" min="0" max="4" step="1" value="0" aria-label="年代">
+      <div id="ticks"></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+const GSI = 'https://cyberjapandata.gsi.go.jp/xyz/';
+const SRC = '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>';
+const LANDSAT = 'Landsat8画像（GSI,TSIC,GEO Grid/AIST）, Landsat8画像（courtesy of the U.S. Geological Survey）, 海底地形（GEBCO）';
+const NENDO = [2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024];
+const nendo = y => ({ id:'nendophoto' + y, ext:'png', min:14, max:18 });
+
+// 地理院タイル一覧（maps.gsi.go.jp/development/ichiran.html）で確認したID。layers は下から上の順に重ねる
+const OLD = [
+  { key:'riku10', name:'1936〜1942年頃（東京23区・大阪周辺）', minZ:13, photo:true,
+    layers:[{ id:'ort_riku10', ext:'png', min:13, max:18 }] },
+  { key:'usa10', name:'1945〜1950年', minZ:10, photo:true, layers:[{ id:'ort_USA10', ext:'png', min:10, max:17 }] },
+  { key:'old10', name:'1961〜1969年', minZ:10, photo:true, layers:[{ id:'ort_old10', ext:'png', min:10, max:17 }] },
+  { key:'gazo1', name:'1974〜1978年', minZ:10, photo:true, layers:[{ id:'gazo1', ext:'jpg', min:10, max:17 }] },
+  { key:'gazo2', name:'1979〜1983年', minZ:10, photo:true, layers:[{ id:'gazo2', ext:'jpg', min:10, max:17 }] },
+  { key:'gazo3', name:'1984〜1986年', minZ:10, photo:true, layers:[{ id:'gazo3', ext:'jpg', min:10, max:17 }] },
+  { key:'gazo4', name:'1987〜1990年', minZ:10, photo:true, layers:[{ id:'gazo4', ext:'jpg', min:10, max:17 }] },
+  { key:'airphoto', name:'簡易空中写真（2004年〜）', minZ:14, photo:true,
+    layers:[{ id:'airphoto', ext:'png', min:14, max:18 }] },
+  ...NENDO.map(y => ({ key:'n' + y, name:y + '年度の空中写真', minZ:14, photo:true,
+    attr: y === 2023 ? 'GRUS画像（© Axelspace）' : '', layers:[nendo(y)] })),
+  { key:'swale', name:'明治期の低湿地（淡色地図に重ね）', minZ:10, probe:1,
+    layers:[{ id:'pale', ext:'png', min:2, max:18 }, { id:'swale', ext:'png', min:10, max:16 }] },
+];
+const NEW = [
+  { key:'std', name:'標準地図', minZ:2, layers:[{ id:'std', ext:'png', min:2, max:18 }] },
+  { key:'pale', name:'淡色地図', minZ:2, layers:[{ id:'pale', ext:'png', min:2, max:18 }] },
+  { key:'photo', name:'最新の写真', minZ:2, photo:true, attr:LANDSAT,
+    layers:[{ id:'seamlessphoto', ext:'jpg', min:2, max:18 }] },
+  { key:'ort', name:'電子国土基本図（写真 2007年〜）', minZ:14, photo:true,
+    layers:[{ id:'ort', ext:'jpg', min:14, max:18 }] },
+];
+// 「年代」モードの5段階。重ねた上の層が優先、無い所は下の層で埋まる
+const ERAS = [
+  { key:'e1', tick:'1945〜50', name:'1945〜1950年', note:'米軍撮影の空中写真', minZ:10, photo:true,
+    layers:[{ id:'ort_USA10', ext:'png', min:10, max:17 }] },
+  { key:'e2', tick:'1961〜69', name:'1961〜1969年', note:'空中写真', minZ:10, photo:true,
+    layers:[{ id:'ort_old10', ext:'png', min:10, max:17 }] },
+  { key:'e3', tick:'1984〜90', name:'1984〜1990年', note:'1987〜90年を優先し、無い所は1984〜86年', minZ:10, photo:true,
+    layers:[{ id:'gazo3', ext:'jpg', min:10, max:17 }, { id:'gazo4', ext:'jpg', min:10, max:17 }] },
+  { key:'e4', tick:'2007前後', name:'2007年度前後', note:'2007年度を優先し、無い所は2008→2009→2010年度', minZ:14, photo:true,
+    layers:[2010, 2009, 2008, 2007].map(nendo) },
+  { key:'e5', tick:'最新', name:'最新', note:'全国最新写真（シームレス）', minZ:2, photo:true, attr:LANDSAT,
+    layers:[{ id:'seamlessphoto', ext:'jpg', min:2, max:18 }] },
+];
+const MODES = ['split', 'swipe', 'fade', 'time'];
+
+function makeLayer(def, pane) {
+  const attr = SRC + (def.photo ? '（空中写真：国土地理院' + (def.attr ? '、' + def.attr : '') + '）' : '');
+  return L.layerGroup(def.layers.map((l, k) =>
+    L.tileLayer(GSI + l.id + '/{z}/{x}/{y}.' + l.ext, {
+      minNativeZoom:l.min, maxNativeZoom:l.max, maxZoom:18, bounds:[[20, 122], [46, 154]],
+      zIndex:k + 1, pane, attribution:attr,
+    })));
+}
+
+// 状態はURLの #z/lat/lng/昔/今/モード/年代 に残す。URLに無ければ前回の状態、それも無ければ東京駅
+const store = {
+  get() { try { return localStorage.getItem('konjaku-state') || ''; } catch { return ''; } },
+  set(v) { try { localStorage.setItem('konjaku-state', v); } catch {} },
+};
+function parseState(s) {
+  const p = s.replace(/^#/, '').split('/');
+  const n = p.slice(0, 3).map(Number);
+  if (p.length < 3 || !n.every(v => !isNaN(v))) return null;
+  return {
+    z:n[0], lat:n[1], lng:n[2],
+    old: OLD.find(d => d.key === p[3]) || OLD[1],
+    now: NEW.find(d => d.key === p[4]) || NEW[0],
+    mode: MODES.includes(p[5]) ? p[5] : 'split',
+    era: Math.min(4, Math.max(0, parseInt(p[6]) || 0)),
+  };
+}
+const init = parseState(location.hash) || parseState(store.get()) ||
+  { z:16, lat:35.6812, lng:139.7671, old:OLD[1], now:NEW[0], mode:'split', era:0 };
+const st = { old:init.old, now:init.now, mode:init.mode, era:init.era };
+
+function newMap(id) {
+  const m = L.map(id, { minZoom:5, maxZoom:18, zoomSnap:0.5 }).setView([init.lat, init.lng], init.z);
+  m.attributionControl.setPrefix('<a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a>');
+  L.control.scale({ imperial:false }).addTo(m);
+  return m;
+}
+const mapL = newMap('mapL'), mapR = newMap('mapR');
+// 右の地図では昔の地図を専用ペインに載せ、スワイプ・透過はペインに対して行う
+mapR.createPane('oldPane').style.zIndex = 450;
+const oldPane = mapR.getPane('oldPane');
+const $ = id => document.getElementById(id);
+
+const curOld = () => st.mode === 'time' ? ERAS[st.era] : st.old;
+
+let layL, layR, layROld;
+function applyLayers() {
+  [layL, layR, layROld].forEach(l => l && l.remove());
+  layL = makeLayer(st.old, 'tilePane').addTo(mapL);
+  layR = makeLayer(st.mode === 'time' ? NEW[1] : st.now, 'tilePane').addTo(mapR);
+  layROld = makeLayer(curOld(), 'oldPane');
+  if (st.mode !== 'split') layROld.addTo(mapR);
+  if (st.mode === 'time') {
+    const e = ERAS[st.era];
+    $('era').value = st.era;
+    $('eraName').textContent = e.name;
+    $('eraNote').textContent = e.note;
+    document.querySelectorAll('#ticks span').forEach((s, k) => s.classList.toggle('on', k === st.era));
+  }
+  updateClip(); updateLabels(); updateHint(); saveState();
+}
+
+function updateLabels() {
+  const none = avail[curOld().key] === false;
+  const tail = none ? '（この付近は写真なし）' : '';
+  $('labelL').textContent = '昔：' + st.old.name + (avail[st.old.key] === false ? '（この付近は写真なし）' : '');
+  $('labelL').classList.toggle('none', avail[st.old.key] === false);
+  $('labelR').textContent = {
+    split: '今：' + st.now.name,
+    swipe: '左：' + st.old.name + tail + ' ／ 右：' + st.now.name,
+    fade: st.old.name + tail + ' ⇄ ' + st.now.name,
+    time: ERAS[st.era].name + tail,
+  }[st.mode];
+  $('labelR').classList.toggle('none', st.mode !== 'split' && none);
+}
+
+function setMode(mode) {
+  st.mode = mode;
+  document.body.classList.remove(...MODES);
+  document.body.classList.add(mode);
+  document.querySelectorAll('#modes button').forEach(b => b.classList.toggle('on', b.dataset.mode === mode));
+  mapR.invalidateSize(); mapL.invalidateSize();
+  sync(mapR, mapL);
+  oldPane.style.opacity = '';
+  oldPane.style.clip = '';
+  applyLayers();
+}
+
+const ratio = $('ratio');
+function updateClip() {
+  if (st.mode === 'swipe') {
+    const size = mapR.getSize();
+    const nw = mapR.containerPointToLayerPoint([0, 0]);
+    const se = mapR.containerPointToLayerPoint(size);
+    const x = size.x * ratio.value / 100;
+    oldPane.style.clip = `rect(${nw.y}px, ${nw.x + x}px, ${se.y}px, ${nw.x}px)`;
+    $('swipeLine').style.left = x + 'px';
+  } else if (st.mode === 'fade') {
+    oldPane.style.opacity = 1 - ratio.value / 100;
+  }
+}
+ratio.addEventListener('input', updateClip);
+mapR.on('move zoom resize', updateClip);
+
+// スワイプの境目は丸いつまみを直接ドラッグしても動かせる
+const handle = $('handle');
+L.DomEvent.disableClickPropagation(handle);
+handle.addEventListener('pointerdown', ev => {
+  ev.stopPropagation(); ev.preventDefault();
+  handle.setPointerCapture(ev.pointerId);
+  const box = $('mapR').getBoundingClientRect();
+  const move = e => {
+    ratio.value = Math.max(0, Math.min(100, (e.clientX - box.left) / box.width * 100));
+    updateClip();
+  };
+  const up = () => { handle.removeEventListener('pointermove', move); handle.removeEventListener('pointerup', up); };
+  handle.addEventListener('pointermove', move);
+  handle.addEventListener('pointerup', up);
+});
+
+// 左右の地図の位置を同期
+let syncing = false;
+function sync(from, to) {
+  if (syncing) return;
+  syncing = true;
+  to.setView(from.getCenter(), from.getZoom(), { animate:false });
+  syncing = false;
+}
+mapL.on('move zoom', () => st.mode === 'split' && sync(mapL, mapR));
+mapR.on('move zoom', () => st.mode === 'split' && sync(mapR, mapL));
+
+// 左右表示では、片方のマウス位置をもう片方に赤丸で出す
+const ghost = () => L.circleMarker([0, 0], { radius:7, color:'#e00', weight:2, fill:false, interactive:false });
+const ghostL = ghost(), ghostR = ghost();
+mapL.on('mousemove', e => st.mode === 'split' && ghostR.setLatLng(e.latlng).addTo(mapR));
+mapR.on('mousemove', e => st.mode === 'split' && ghostL.setLatLng(e.latlng).addTo(mapL));
+mapL.on('mouseout', () => ghostR.remove());
+mapR.on('mouseout', () => ghostL.remove());
+
+function updateHint() {
+  const z = mapR.getZoom();
+  const need = Math.max(curOld().minZ, st.mode === 'time' ? 0 : st.now.minZ);
+  $('hint').textContent = z < need ? `ズーム${need}以上で表示されます（今 ${z}）` : '';
+}
+function saveState() {
+  const c = mapR.getCenter(), z = mapR.getZoom();
+  const s = `#${z}/${c.lat.toFixed(5)}/${c.lng.toFixed(5)}/${st.old.key}/${st.now.key}/${st.mode}/${st.era}`;
+  try { history.replaceState(null, '', s); } catch {}
+  store.set(s);
+  $('gsiLink').href = `https://maps.gsi.go.jp/#${Math.round(z)}/${c.lat.toFixed(6)}/${c.lng.toFixed(6)}/`;
+}
+
+// 画面中心のタイルを試しに読み、その年代の写真がこの付近にあるか調べる
+const avail = {}, probeCache = {};
+function tileXY(lat, lng, z) {
+  const n = 2 ** z, r = lat * Math.PI / 180;
+  return [Math.floor((lng + 180) / 360 * n), Math.floor((1 - Math.asinh(Math.tan(r)) / Math.PI) / 2 * n)];
+}
+function probeOne(l, c) {
+  const z = l.min, [x, y] = tileXY(c.lat, c.lng, z);
+  const url = `${GSI}${l.id}/${z}/${x}/${y}.${l.ext}`;
+  if (!probeCache[url]) probeCache[url] = new Promise(res => {
+    const img = new Image();
+    img.onload = () => res(true);
+    img.onerror = () => res(false);
+    img.src = url;
+  });
+  return probeCache[url];
+}
+let probeTimer;
+function probeAll() {
+  clearTimeout(probeTimer);
+  probeTimer = setTimeout(async () => {
+    const c = mapR.getCenter();
+    await Promise.all([...OLD, ...ERAS].map(async d => {
+      const ls = d.probe != null ? [d.layers[d.probe]] : d.layers;
+      avail[d.key] = (await Promise.all(ls.map(l => probeOne(l, c)))).some(Boolean);
+    }));
+    [...$('oldSel').options].forEach(o => {
+      const d = OLD.find(x => x.key === o.value);
+      o.textContent = d.name + (avail[d.key] ? '' : '（この付近なし）');
+    });
+    document.querySelectorAll('#ticks span').forEach((s, k) => s.classList.toggle('none', !avail[ERAS[k].key]));
+    updateLabels();
+  }, 400);
+}
+mapR.on('moveend', () => { updateHint(); saveState(); probeAll(); });
+
+OLD.forEach(d => $('oldSel').add(new Option(d.name, d.key, false, d === st.old)));
+NEW.forEach(d => $('newSel').add(new Option(d.name, d.key, false, d === st.now)));
+$('oldSel').addEventListener('change', e => { st.old = OLD.find(d => d.key === e.target.value); applyLayers(); });
+$('newSel').addEventListener('change', e => { st.now = NEW.find(d => d.key === e.target.value); applyLayers(); });
+
+// 昔側を前後に送る。年代モードでは5段階を送る
+function stepOld(dir) {
+  if (st.mode === 'time') { setEra(st.era + dir); return; }
+  const i = OLD.indexOf(st.old) + dir;
+  if (i < 0 || i >= OLD.length) return;
+  st.old = OLD[i];
+  $('oldSel').value = st.old.key;
+  applyLayers();
+}
+function setEra(i) {
+  i = Math.max(0, Math.min(ERAS.length - 1, i));
+  if (i === st.era) return;
+  st.era = i;
+  applyLayers();
+}
+$('prevOld').onclick = () => stepOld(-1);
+$('nextOld').onclick = () => stepOld(1);
+ERAS.forEach((e, k) => {
+  const s = document.createElement('span');
+  s.textContent = e.tick;
+  s.onclick = () => setEra(k);
+  $('ticks').appendChild(s);
+});
+$('era').addEventListener('input', e => setEra(+e.target.value));
+L.DomEvent.disableClickPropagation($('timeBox'));
+L.DomEvent.disableScrollPropagation($('timeBox'));
+document.querySelectorAll('#modes button').forEach(b => b.onclick = () => setMode(b.dataset.mode));
+$('crossChk').addEventListener('change', e => document.body.classList.toggle('nocross', !e.target.checked));
+
+// キー操作: , . で昔側を前後、1〜4でモード切替
+document.addEventListener('keydown', ev => {
+  if (ev.target.tagName === 'INPUT' && ev.target.type !== 'range' && ev.target.type !== 'checkbox') return;
+  if (ev.target.tagName === 'SELECT') return;
+  if (ev.key === ',' || ev.key === '<') stepOld(-1);
+  else if (ev.key === '.' || ev.key === '>') stepOld(1);
+  else if (MODES[+ev.key - 1]) setMode(MODES[+ev.key - 1]);
+});
+
+// 国土地理院の住所検索API。「35.68, 139.76」のような緯度経度はそのまま移動
+const q = $('q'), results = $('results');
+function showResults(html) { results.innerHTML = html; results.hidden = false; }
+async function search() {
+  const text = q.value.trim();
+  if (!text) return;
+  const ll = text.match(/^\s*(-?\d+(?:\.\d+)?)\s*[,，\s]\s*(-?\d+(?:\.\d+)?)\s*$/);
+  if (ll) { mapR.setView([+ll[1], +ll[2]], Math.max(mapR.getZoom(), 16)); results.hidden = true; return; }
+  showResults('<div>検索中…</div>');
+  try {
+    const r = await fetch('https://msearch.gsi.go.jp/address-search/AddressSearch?q=' + encodeURIComponent(text));
+    const list = await r.json();
+    if (!list.length) { showResults('<div>見つかりませんでした。表記を変えて試してください</div>'); return; }
+    results.innerHTML = '';
+    list.slice(0, 40).forEach(f => {
+      const d = document.createElement('div');
+      d.textContent = f.properties.title;
+      d.onclick = () => {
+        const [lng, lat] = f.geometry.coordinates;
+        mapR.setView([lat, lng], Math.max(mapR.getZoom(), 16));
+        results.hidden = true;
+      };
+      results.appendChild(d);
+    });
+    if (list.length === 1) results.firstChild.click();
+  } catch (err) {
+    showResults('<div>検索できませんでした。通信状態を確認してください</div>');
+  }
+}
+$('go').onclick = search;
+q.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); search(); } });
+[mapL, mapR].forEach(m => m.on('click movestart', () => { results.hidden = true; }));
+
+let here;
+$('loc').onclick = () => {
+  if (!navigator.geolocation) { $('hint').textContent = 'このブラウザでは現在地を取得できません'; return; }
+  $('hint').textContent = '現在地を取得中…';
+  navigator.geolocation.getCurrentPosition(p => {
+    const ll = [p.coords.latitude, p.coords.longitude];
+    here && here.remove();
+    here = L.circleMarker(ll, { radius:7, color:'#fff', weight:2, fillColor:'#1a73e8', fillOpacity:1 }).addTo(mapR);
+    mapR.setView(ll, Math.max(mapR.getZoom(), 16));
+    $('hint').textContent = '';
+  }, () => { $('hint').textContent = '現在地を取得できませんでした（位置情報の許可を確認してください）'; },
+  { enableHighAccuracy:true, timeout:10000 });
+};
+$('copy').onclick = async ev => {
+  saveState();
+  const btn = ev.currentTarget;
+  try { await navigator.clipboard.writeText(location.href); btn.textContent = 'コピーしました'; }
+  catch { btn.textContent = 'コピー不可'; }
+  setTimeout(() => btn.textContent = 'URLコピー', 1500);
+};
+
+setMode(st.mode);
+probeAll();
+</script>
+</body>
+</html>
