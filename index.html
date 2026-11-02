@@ -239,6 +239,7 @@ const TEIKOKU_DEF = { key:'mw200t', name:'20万分1帝国図（1906〜44年・�
 const CHISEI_DEF = { key:'mw200c', name:'20万分1地勢図（戦前・全国）', short:'地勢図', title:'20万分1地勢図',
   minZ:8, maxNative:13, mw:true, layers:[], sheets:MW_CHISEI, rects:MW_CHISEI.map(sheetRect200), attr:MW_GSI_ATTR };
 const MW_DEFS = [MW_DEF, CHISEI_DEF, TEIKOKU_DEF];
+MW_DEF.low = CHISEI_DEF;
 const sheetAt = (def, ll) => def.sheets.find((r, i) => def.rects[i].contains(ll));
 const sheetYear = r => r[6] ? r[6] + '年' : '年不明';
 
@@ -273,17 +274,20 @@ const MWGroup = L.LayerGroup.extend({
     L.LayerGroup.prototype.onRemove.call(this, map);
   },
   update() {
-    const map = this._map, shown = this._shown ||= {}, def = this.options.def;
+    const map = this._map, shown = this._shown ||= {};
+    // 5万分1は広域だと図幅が多すぎるので、ズーム11未満では代わりに20万分1地勢図を出す
+    let def = this.options.def;
+    if (map.getZoom() < def.minZ && def.low) def = def.low;
     const view = map.getBounds().pad(0.3);
-    const want = map.getZoom() < def.minZ ? [] :
-      def.sheets.map((r, i) => i).filter(i => def.rects[i].intersects(view)).slice(0, 30);
-    Object.keys(shown).forEach(i => { if (!want.includes(+i)) { this.removeLayer(shown[i]); delete shown[i]; } });
-    want.forEach(i => {
-      if (shown[i]) return;
-      const r = def.sheets[i];
-      shown[i] = new ClipTiles({ id:r[0], rect:def.rects[i], bounds:def.rects[i], pane:this.options.pane,
+    const want = map.getZoom() < def.minZ ? [] : def.sheets.map((r, i) => i)
+      .filter(i => def.rects[i].intersects(view)).slice(0, 30).map(i => def.key + ':' + i);
+    Object.keys(shown).forEach(k => { if (!want.includes(k)) { this.removeLayer(shown[k]); delete shown[k]; } });
+    want.forEach(k => {
+      if (shown[k]) return;
+      const i = +k.split(':')[1], r = def.sheets[i];
+      shown[k] = new ClipTiles({ id:r[0], rect:def.rects[i], bounds:def.rects[i], pane:this.options.pane,
         maxZoom:18, maxNativeZoom:def.maxNative, zIndex:r[6] || 1, attribution:def.attr });
-      this.addLayer(shown[i]);
+      this.addLayer(shown[k]);
     });
   },
 });
@@ -413,8 +417,9 @@ function renderTime() {
   $('era').value = st.era;
   $('eraName').textContent = e.kj ? e.name.replace(/^地形図 /, '').replace(/（.*$/, '') :
     e.title || e.name;
-  $('eraNote').textContent = e.kj ? `地形図（${e.set.n}）・今昔マップ on the web` :
-    e.mw ? mwHere(e) + '・日本版MapWarper' : e.note || '空中写真（国土地理院）';
+  $('eraNote').textContent = e === LATEST_MAP || e === LATEST_PHOTO ? e.note :
+    oldTail(e).replace(/^（|）$/g, '') || (e.kj ? `地形図（${e.set.n}）・今昔マップ on the web` :
+    e.note || '空中写真（国土地理院）');
   document.querySelectorAll('#kinds button').forEach(b => b.classList.toggle('on', b.dataset.kind === st.kind));
   const ticks = $('ticks');
   ticks.innerHTML = '';
@@ -430,12 +435,19 @@ function renderTime() {
   });
 }
 
+// 昔側の図の補足。無い・縮小しすぎで出ていない・代わりの図を出している、をラベルで知らせる
+const lowNow = d => d.low && mapR.getZoom() < d.minZ;
+const hidden = d => avail[d.key] === false || (mapR.getZoom() < d.minZ && !lowNow(d));
+function oldTail(d) {
+  if (avail[d.key] === false) return '（この付近は無し）';
+  if (lowNow(d)) return `（広域なので20万分1地勢図を表示中。ズーム${d.minZ}以上で5万分1）`;
+  if (mapR.getZoom() < d.minZ) return `（ズーム${d.minZ}以上に拡大すると表示）`;
+  return d.mw ? `（${mwHere(d)}）` : '';
+}
 function updateLabels() {
-  const cur = curOld(), none = avail[cur.key] === false;
-  const tail = cur.mw ? `（${mwHere(cur)}）` : none ? '（この付近は無し）' : '';
-  $('labelL').textContent = '昔：' + st.old.name +
-    (st.old.mw ? `（${mwHere(st.old)}）` : avail[st.old.key] === false ? '（この付近は無し）' : '');
-  $('labelL').classList.toggle('none', avail[st.old.key] === false);
+  const cur = curOld(), none = hidden(cur), tail = oldTail(cur);
+  $('labelL').textContent = '昔：' + st.old.name + oldTail(st.old);
+  $('labelL').classList.toggle('none', hidden(st.old));
   $('labelR').textContent = {
     split: '今：' + st.now.name,
     swipe: '左：' + st.old.name + tail + ' ／ 右：' + st.now.name,
@@ -510,7 +522,8 @@ mapR.on('mouseout', () => ghostL.remove());
 
 function updateHint() {
   const z = mapR.getZoom();
-  const need = Math.max(curOld().minZ, st.mode === 'time' ? 0 : st.now.minZ);
+  const cur = curOld();
+  const need = Math.max(lowNow(cur) ? cur.low.minZ : cur.minZ, st.mode === 'time' ? 0 : st.now.minZ);
   $('hint').textContent = z < need ? `ズーム${need}以上で表示されます（今 ${z}）` : '';
 }
 function saveState() {
