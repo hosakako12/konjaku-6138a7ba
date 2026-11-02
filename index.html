@@ -75,7 +75,7 @@
     box-shadow:0 2px 10px rgba(0,0,0,.2); }
   #eraHead { display:flex; align-items:center; gap:6px 10px; flex-wrap:wrap; }
   #eraHead b { font-size:20px; }
-  #eraHead span { font-size:12px; color:var(--muted); flex:1; min-width:0; }
+  #eraHead span { font-size:12px; color:var(--muted); flex:1 1 9em; min-width:9em; }
   #kinds button { font-size:12px; padding:3px 8px; }
   #era { width:100%; accent-color:var(--accent); margin:4px 0 0; }
   #ticks { display:flex; font-size:11px; color:var(--muted); }
@@ -146,6 +146,7 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
   integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <script src="mw-index.js"></script>
+<script src="mw200-index.js"></script>
 <script>
 const GSI = 'https://cyberjapandata.gsi.go.jp/xyz/';
 const SRC = '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">地理院タイル</a>';
@@ -160,19 +161,20 @@ const KJ = [{"n":"首都圏","f":"tokyo50","e":[["1896〜1909","2man"],["1917〜
 
 // 地理院タイル一覧（maps.gsi.go.jp/development/ichiran.html）で確認したID。layers は下から上の順に重ねる
 const PHOTOS = [
-  { key:'o1928', name:'1928年頃（大阪市域のみ）', minZ:13, photo:true,
+  { key:'o1928', name:'1928年頃（大阪市域のみ）', short:'1928', minZ:13, photo:true,
     layers:[{ id:'ort_1928', ext:'png', min:13, max:18 }] },
-  { key:'riku10', name:'1936〜1942年頃（東京23区・大阪周辺）', minZ:13, photo:true,
+  { key:'riku10', name:'1936〜1942年頃（東京23区・大阪周辺）', short:'1936〜', minZ:13, photo:true,
     layers:[{ id:'ort_riku10', ext:'png', min:13, max:18 }] },
-  { key:'usa10', name:'1945〜1950年', minZ:10, photo:true, layers:[{ id:'ort_USA10', ext:'png', min:10, max:17 }] },
-  { key:'old10', name:'1961〜1969年', minZ:10, photo:true, layers:[{ id:'ort_old10', ext:'png', min:10, max:17 }] },
-  { key:'gazo1', name:'1974〜1978年', minZ:10, photo:true, layers:[{ id:'gazo1', ext:'jpg', min:10, max:17 }] },
-  { key:'gazo2', name:'1979〜1983年', minZ:10, photo:true, layers:[{ id:'gazo2', ext:'jpg', min:10, max:17 }] },
-  { key:'gazo3', name:'1984〜1986年', minZ:10, photo:true, layers:[{ id:'gazo3', ext:'jpg', min:10, max:17 }] },
-  { key:'gazo4', name:'1987〜1990年', minZ:10, photo:true, layers:[{ id:'gazo4', ext:'jpg', min:10, max:17 }] },
+  { key:'usa10', name:'1945〜1950年', short:'1945〜', note:'米軍撮影の空中写真', minZ:10, photo:true,
+    layers:[{ id:'ort_USA10', ext:'png', min:10, max:17 }] },
+  { key:'old10', name:'1961〜1969年', short:'1961〜', minZ:10, photo:true, layers:[{ id:'ort_old10', ext:'png', min:10, max:17 }] },
+  { key:'gazo1', name:'1974〜1978年', short:'1974〜', minZ:10, photo:true, layers:[{ id:'gazo1', ext:'jpg', min:10, max:17 }] },
+  { key:'gazo2', name:'1979〜1983年', short:'1979〜', minZ:10, photo:true, layers:[{ id:'gazo2', ext:'jpg', min:10, max:17 }] },
+  { key:'gazo3', name:'1984〜1986年', short:'1984〜', minZ:10, photo:true, layers:[{ id:'gazo3', ext:'jpg', min:10, max:17 }] },
+  { key:'gazo4', name:'1987〜1990年', short:'1987〜', minZ:10, photo:true, layers:[{ id:'gazo4', ext:'jpg', min:10, max:17 }] },
   { key:'airphoto', name:'簡易空中写真（2004年〜）', minZ:14, photo:true,
     layers:[{ id:'airphoto', ext:'png', min:14, max:18 }] },
-  ...NENDO.map(y => ({ key:'n' + y, name:y + '年度の空中写真', minZ:14, photo:true,
+  ...NENDO.map(y => ({ key:'n' + y, name:y + '年度の空中写真', short:String(y), title:y + '年度', minZ:14, photo:true,
     attr: y === 2023 ? 'GRUS画像（© Axelspace）' : '', layers:[nendo(y)] })),
 ];
 const SWALE = { key:'swale', name:'明治期の低湿地（淡色地図に重ね）', minZ:10, probe:1,
@@ -193,20 +195,32 @@ function kjDef(set, e) {
 // 全国の戦前5万分1地形図（日本版MapWarper）。図幅ごとに別の画像なので、見えている図幅だけを重ねる
 const MW_ATTR = '<a href="https://mapwarper.h-gis.jp/" target="_blank" rel="noopener">日本版MapWarper</a>' +
   '（Image from the Map Collections courtesy Stanford University Libraries, CC BY-NC 3.0. © Stanford University.）';
-const MW_DEF = { key:'mw50k', name:'5万分1地形図（戦前・全国）', short:'戦前', minZ:11, mw:true, layers:[] };
+const MW_GSI_ATTR = '<a href="https://mapwarper.h-gis.jp/" target="_blank" rel="noopener">日本版MapWarper</a>（国土地理院 旧版地図）';
 
-// 旧日本測地系→世界測地系の近似式（国土地理院）。図郭は旧測地系の経度15分×緯度10分で切られている
+// 旧日本測地系→世界測地系の近似式（国土地理院）。図郭は旧測地系の経緯度で切られている
+// （5万分1は経度15分×緯度10分、20万分1は経度1度×緯度40分）
 const tokyoToWgs = (la, lo) => [la - 0.00010695 * la + 0.000017464 * lo + 0.0046017,
   lo - 0.000046038 * la - 0.000083043 * lo + 0.010040];
-function sheetRect(r) {
+function sheetRect(r, dLat, dLng) {
   let la = (r[2] + r[4]) / 2, lo = (r[1] + r[3]) / 2;
   const [wla, wlo] = tokyoToWgs(la, lo);
   la -= wla - la; lo -= wlo - lo;
-  const s = Math.floor(la * 6) / 6, w = Math.floor(lo * 4) / 4;
-  return L.latLngBounds(tokyoToWgs(s, w), tokyoToWgs(s + 1 / 6, w + 0.25));
+  const s = Math.floor(la / dLat) * dLat, w = Math.floor(lo / dLng) * dLng;
+  return L.latLngBounds(tokyoToWgs(s, w), tokyoToWgs(s + dLat, w + dLng));
 }
-const MW_RECT = MW.map(sheetRect);
-const sheetAt = ll => MW.find((r, i) => MW_RECT[i].contains(ll));
+// 20万分1は島しょ部など図郭が変則の図幅があるので、外枠に収まらない枠は切らずに外枠のまま出す
+function sheetRect200(r) {
+  const rect = sheetRect(r, 2 / 3, 1), box = L.latLngBounds([r[2], r[1]], [r[4], r[3]]);
+  return box.pad(0.03).contains(rect) ? rect : box;
+}
+const MW_DEF = { key:'mw50k', name:'5万分1地形図（戦前・全国）', short:'戦前', title:'戦前の5万分1', minZ:11,
+  mw:true, layers:[], sheets:MW, rects:MW.map(r => sheetRect(r, 1 / 6, 0.25)), attr:MW_ATTR };
+const TEIKOKU_DEF = { key:'mw200t', name:'20万分1帝国図（1906〜44年・全国）', short:'帝国図', title:'20万分1帝国図',
+  minZ:8, maxNative:13, mw:true, layers:[], sheets:MW_TEIKOKU, rects:MW_TEIKOKU.map(sheetRect200), attr:MW_ATTR };
+const CHISEI_DEF = { key:'mw200c', name:'20万分1地勢図（戦前・全国）', short:'地勢図', title:'20万分1地勢図',
+  minZ:8, maxNative:13, mw:true, layers:[], sheets:MW_CHISEI, rects:MW_CHISEI.map(sheetRect200), attr:MW_GSI_ATTR };
+const MW_DEFS = [MW_DEF, CHISEI_DEF, TEIKOKU_DEF];
+const sheetAt = (def, ll) => def.sheets.find((r, i) => def.rects[i].contains(ll));
 const sheetYear = r => r[6] ? r[6] + '年' : '年不明';
 
 // 余白（図郭の外）を切り落として描くタイル
@@ -240,22 +254,24 @@ const MWGroup = L.LayerGroup.extend({
     L.LayerGroup.prototype.onRemove.call(this, map);
   },
   update() {
-    const map = this._map, shown = this._shown ||= {};
+    const map = this._map, shown = this._shown ||= {}, def = this.options.def;
     const view = map.getBounds().pad(0.3);
-    const want = map.getZoom() < MW_DEF.minZ ? [] :
-      MW.map((r, i) => i).filter(i => MW_RECT[i].intersects(view)).slice(0, 30);
+    const want = map.getZoom() < def.minZ ? [] :
+      def.sheets.map((r, i) => i).filter(i => def.rects[i].intersects(view)).slice(0, 30);
     Object.keys(shown).forEach(i => { if (!want.includes(+i)) { this.removeLayer(shown[i]); delete shown[i]; } });
     want.forEach(i => {
       if (shown[i]) return;
-      shown[i] = new ClipTiles({ id:MW[i][0], rect:MW_RECT[i], bounds:MW_RECT[i], pane:this.options.pane,
-        maxZoom:18, zIndex:MW[i][6] || 1, attribution:MW_ATTR });
+      const r = def.sheets[i];
+      shown[i] = new ClipTiles({ id:r[0], rect:def.rects[i], bounds:def.rects[i], pane:this.options.pane,
+        maxZoom:18, maxNativeZoom:def.maxNative, zIndex:r[6] || 1, attribution:def.attr });
       this.addLayer(shown[i]);
     });
   },
 });
 
 function findOld(key) {
-  if (key === 'mw50k') return MW_DEF;
+  const mw = MW_DEFS.find(d => d.key === key);
+  if (mw) return mw;
   if (key && key.startsWith('kj:')) {
     const [, f, folder] = key.split(':');
     const set = KJ.find(s => s.f === f), e = set && set.e.find(x => x[1] === folder);
@@ -272,26 +288,18 @@ const NEW = [
   { key:'ort', name:'電子国土基本図（写真 2007年〜）', minZ:14, photo:true,
     layers:[{ id:'ort', ext:'jpg', min:14, max:18 }] },
 ];
-// 「年代」モード・空中写真の5段階。重ねた上の層が優先、無い所は下の層で埋まる
-const ERAS = [
-  { key:'e1', short:'1945〜50', name:'1945〜1950年', note:'米軍撮影の空中写真', minZ:10, photo:true,
-    layers:[{ id:'ort_USA10', ext:'png', min:10, max:17 }] },
-  { key:'e2', short:'1961〜69', name:'1961〜1969年', note:'空中写真', minZ:10, photo:true,
-    layers:[{ id:'ort_old10', ext:'png', min:10, max:17 }] },
-  { key:'e3', short:'1984〜90', name:'1984〜1990年', note:'1987〜90年を優先し、無い所は1984〜86年', minZ:10, photo:true,
-    layers:[{ id:'gazo3', ext:'jpg', min:10, max:17 }, { id:'gazo4', ext:'jpg', min:10, max:17 }] },
-  { key:'e4', short:'2007前後', name:'2007年度前後', note:'2007年度を優先し、無い所は2008→2009→2010年度', minZ:14, photo:true,
-    layers:[2010, 2009, 2008, 2007].map(nendo) },
-  { key:'e5', short:'最新', name:'最新', note:'全国最新写真（シームレス）', minZ:2, photo:true, attr:LANDSAT,
-    layers:[{ id:'seamlessphoto', ext:'jpg', min:2, max:18 }] },
-];
+// 「年代」モード・空中写真の段階。全年代のうち、画面の中心に写真がある年代だけを並べる
+// （地方は年代ごとの撮影範囲がまちまちなので、固定の段階だと空振りが多い）
+const LATEST_PHOTO = { key:'latest', short:'最新', name:'最新', note:'全国最新写真（シームレス）', minZ:2, photo:true,
+  attr:LANDSAT, layers:[{ id:'seamlessphoto', ext:'jpg', min:2, max:18 }] };
+const PHOTO_STEPS = [...PHOTOS.filter(d => d.key !== 'airphoto'), LATEST_PHOTO];
 const LATEST_MAP = { key:'std', short:'最新', name:'最新', note:'地理院タイル 標準地図', minZ:2,
   layers:[{ id:'std', ext:'png', min:2, max:18 }] };
 const MODES = ['split', 'swipe', 'fade', 'time'];
 
 function tileUrl(l) { return l.url || GSI + l.id + '/{z}/{x}/{y}.' + l.ext; }
 function makeLayer(def, pane) {
-  if (def.mw) return new MWGroup([], { pane });
+  if (def.mw) return new MWGroup([], { pane, def });
   const attr = def.kj ? KJ_ATTR :
     SRC + (def.photo ? '（空中写真：国土地理院' + (def.attr ? '、' + def.attr : '') + '）' : '');
   return L.layerGroup(def.layers.map((l, k) =>
@@ -317,13 +325,14 @@ function parseState(s) {
     now: NEW.find(d => d.key === p[4]) || NEW[0],
     mode: MODES.includes(p[5]) ? p[5] : 'split',
     era: Math.max(0, parseInt(p[6]) || 0),
+    eraKey: /^\d*$/.test(p[6] || '') ? null : p[6],
     kind: p[7] === 'map' ? 'map' : 'photo',
     kjSet: KJ.find(x => x.f === p[8]) || null,
   };
 }
 const init = parseState(location.hash) || parseState(store.get()) ||
-  { z:16, lat:35.6812, lng:139.7671, old:findOld('usa10'), now:NEW[0], mode:'split', era:0, kind:'photo', kjSet:null };
-const st = { old:init.old, now:init.now, mode:init.mode, era:init.era, kind:init.kind, kjSet:init.kjSet };
+  { z:16, lat:35.6812, lng:139.7671, old:findOld('usa10'), now:NEW[0], mode:'split', era:0, eraKey:null, kind:'photo', kjSet:null };
+const st = { old:init.old, now:init.now, mode:init.mode, era:init.era, eraKey:init.eraKey, kind:init.kind, kjSet:init.kjSet };
 
 function newMap(id) {
   const m = L.map(id, { minZoom:5, maxZoom:18, zoomSnap:0.5 }).setView([init.lat, init.lng], init.z);
@@ -339,22 +348,37 @@ const $ = id => document.getElementById(id);
 
 // 年代モードの段階。地形図はこの付近の地域（データセット）の時期＋最新の標準地図
 // 今昔マップに無い地域では、全国の戦前5万分1地形図と最新の標準地図の2段階になる
-function timeSteps() {
-  if (st.kind === 'photo') return ERAS;
+// all を付けると、写真が無い年代も含めた全段階を返す
+function timeSteps(all) {
+  if (st.kind === 'photo') return all ? PHOTO_STEPS : PHOTO_STEPS.filter(d => avail[d.key] !== false);
   if (!st.kjSet) return [MW_DEF, LATEST_MAP];
   return [...st.kjSet.e.map(e => kjDef(st.kjSet, e)), LATEST_MAP];
 }
-// 地図の中心にある戦前5万分1の図幅名と年（ラベル用）
-function mwHere() {
-  const r = sheetAt(mapR.getCenter());
-  return r ? `図幅「${r[5]}」${sheetYear(r)}` : 'この付近の図幅なし';
+// 段階の並びが変わっても同じ年代を指すよう、年代はキーで覚えて番号に直す。
+// この付近に無い年代なら、全段階の並びで一番近い年代にする
+function resolveEra() {
+  const steps = timeSteps();
+  let i = steps.findIndex(s => s.key === st.eraKey);
+  if (i < 0 && st.eraKey) {
+    const all = timeSteps(true), o = all.findIndex(s => s.key === st.eraKey);
+    const dist = s => Math.abs(all.indexOf(s) - o);
+    if (o >= 0) i = steps.reduce((b, s, k) => dist(s) < dist(steps[b]) ? k : b, 0);
+  }
+  if (i < 0) i = st.era;
+  st.era = Math.max(0, Math.min(i, steps.length - 1));
+  st.eraKey = steps[st.era].key;
+}
+// 地図の中心にある図幅名（と5万分1は年。ラベル用）
+function mwHere(def) {
+  const r = sheetAt(def, mapR.getCenter());
+  return !r ? 'この付近の図幅なし' : `図幅「${r[5]}」` + (def === MW_DEF ? sheetYear(r) : '');
 }
 const curOld = () => st.mode === 'time' ? timeSteps()[st.era] : st.old;
 
 let layL, layR, layROld;
 function applyLayers() {
   [layL, layR, layROld].forEach(l => l && l.remove());
-  if (st.mode === 'time') st.era = Math.min(st.era, timeSteps().length - 1);
+  if (st.mode === 'time') resolveEra();
   layL = makeLayer(st.old, 'tilePane').addTo(mapL);
   layR = makeLayer(st.mode === 'time' ? NEW[1] : st.now, 'tilePane').addTo(mapR);
   layROld = makeLayer(curOld(), 'oldPane');
@@ -368,15 +392,17 @@ function renderTime() {
   $('era').max = steps.length - 1;
   $('era').value = st.era;
   $('eraName').textContent = e.kj ? e.name.replace(/^地形図 /, '').replace(/（.*$/, '') :
-    e.mw ? '戦前の5万分1' : e.name;
+    e.title || e.name;
   $('eraNote').textContent = e.kj ? `地形図（${e.set.n}）・今昔マップ on the web` :
-    e.mw ? mwHere() + '・日本版MapWarper' : e.note;
+    e.mw ? mwHere(e) + '・日本版MapWarper' : e.note || '空中写真（国土地理院）';
   document.querySelectorAll('#kinds button').forEach(b => b.classList.toggle('on', b.dataset.kind === st.kind));
   const ticks = $('ticks');
   ticks.innerHTML = '';
+  // 段階が多いときは目盛りの文字を間引く（選択中・両端は必ず出す）
+  const every = Math.ceil(steps.length / 7);
   steps.forEach((s, k) => {
     const t = document.createElement('span');
-    t.textContent = s.short;
+    t.textContent = k % every === 0 || k === steps.length - 1 || k === st.era ? s.short : '・';
     t.title = s.name;
     t.className = (k === st.era ? 'on' : '') + (avail[s.key] === false ? ' none' : '');
     t.onclick = () => setEra(k);
@@ -386,9 +412,9 @@ function renderTime() {
 
 function updateLabels() {
   const cur = curOld(), none = avail[cur.key] === false;
-  const tail = cur.mw ? `（${mwHere()}）` : none ? '（この付近は無し）' : '';
+  const tail = cur.mw ? `（${mwHere(cur)}）` : none ? '（この付近は無し）' : '';
   $('labelL').textContent = '昔：' + st.old.name +
-    (st.old.mw ? `（${mwHere()}）` : avail[st.old.key] === false ? '（この付近は無し）' : '');
+    (st.old.mw ? `（${mwHere(st.old)}）` : avail[st.old.key] === false ? '（この付近は無し）' : '');
   $('labelL').classList.toggle('none', avail[st.old.key] === false);
   $('labelR').textContent = {
     split: '今：' + st.now.name,
@@ -469,7 +495,7 @@ function updateHint() {
 }
 function saveState() {
   const c = mapR.getCenter(), z = mapR.getZoom();
-  const s = `#${z}/${c.lat.toFixed(5)}/${c.lng.toFixed(5)}/${st.old.key}/${st.now.key}/${st.mode}/${st.era}/${st.kind}/${st.kjSet ? st.kjSet.f : ''}`;
+  const s = `#${z}/${c.lat.toFixed(5)}/${c.lng.toFixed(5)}/${st.old.key}/${st.now.key}/${st.mode}/${st.mode === 'time' ? st.eraKey : st.era}/${st.kind}/${st.kjSet ? st.kjSet.f : ''}`;
   try { history.replaceState(null, '', s); } catch {}
   store.set(s);
   $('gsiLink').href = `https://maps.gsi.go.jp/#${Math.round(z)}/${c.lat.toFixed(6)}/${c.lng.toFixed(6)}/`;
@@ -507,19 +533,26 @@ function probeAll() {
     const hit = await Promise.all(KJ.map(set => probeDef(kjDef(set, set.e[0]), c, 10)));
     kjHere = KJ.filter((set, i) => hit[i]).sort((a, b) => b.e.length - a.e.length);
     await Promise.all([
-      ...[...PHOTOS, SWALE, ...ERAS].map(d => probeDef(d, c)),
+      ...[...PHOTOS, SWALE].map(d => probeDef(d, c)),
       ...kjHere.flatMap(set => set.e.map(e => {
         const d = kjDef(set, e);
         return probeDef(d, c, Math.max(10, Math.min(Math.round(mapR.getZoom()), d.layers[0].max)));
       })),
     ]);
-    avail[MW_DEF.key] = !!sheetAt(c);
+    MW_DEFS.forEach(d => avail[d.key] = !!sheetAt(d, c));
+    let changed = false;
     if (!st.kjSet || !kjHere.includes(st.kjSet)) {
       const next = kjHere[0] || null;
-      if (next !== st.kjSet) { st.kjSet = next; if (st.mode === 'time' && st.kind === 'map') { st.era = 0; applyLayers(); } }
+      if (next !== st.kjSet) {
+        st.kjSet = next;
+        if (st.mode === 'time' && st.kind === 'map') { st.era = 0; st.eraKey = null; changed = true; }
+      }
     }
+    // 写真の段階はこの付近にある年代で並び直す。表示中の年代が無ければ近い年代に替える
+    if (st.mode === 'time') { const prev = st.eraKey; resolveEra(); changed ||= st.eraKey !== prev; }
     buildOldOptions();
-    if (st.mode === 'time') renderTime();
+    if (changed) applyLayers();
+    else if (st.mode === 'time') renderTime();
     updateLabels();
   }, 400);
 }
@@ -533,7 +566,7 @@ function buildOldOptions() {
     new Option(d.name + (avail[d.key] === false ? '（この付近なし）' : ''), d.key, false, d === st.old));
   const gm = document.createElement('optgroup');
   gm.label = '旧版地形図（全国）日本版MapWarper';
-  add(gm, MW_DEF);
+  MW_DEFS.forEach(d => add(gm, d));
   sel.appendChild(gm);
   const sets = [...kjHere];
   if (st.old.kj && !sets.includes(st.old.set)) sets.push(st.old.set);
@@ -571,6 +604,7 @@ function setEra(i) {
   i = Math.max(0, Math.min(timeSteps().length - 1, i));
   if (i === st.era) return;
   st.era = i;
+  st.eraKey = timeSteps()[i].key;
   applyLayers();
 }
 $('prevOld').onclick = () => stepOld(-1);
@@ -580,6 +614,7 @@ document.querySelectorAll('#kinds button').forEach(b => b.onclick = () => {
   if (st.kind === b.dataset.kind) return;
   st.kind = b.dataset.kind;
   st.era = 0;
+  st.eraKey = null;
   applyLayers();
 });
 L.DomEvent.disableClickPropagation($('timeBox'));
