@@ -533,7 +533,9 @@ function probeAll() {
     const hit = await Promise.all(KJ.map(set => probeDef(kjDef(set, set.e[0]), c, 10)));
     kjHere = KJ.filter((set, i) => hit[i]).sort((a, b) => b.e.length - a.e.length);
     await Promise.all([
-      ...[...PHOTOS, SWALE].map(d => probeDef(d, c)),
+      // 写真は撮影範囲の端が粗いズームでは判定できないので、表示中のズームで調べる
+      ...PHOTOS.map(d => probeDef(d, c, Math.max(d.layers[0].min, Math.min(Math.round(mapR.getZoom()), d.layers[0].max)))),
+      probeDef(SWALE, c),
       ...kjHere.flatMap(set => set.e.map(e => {
         const d = kjDef(set, e);
         return probeDef(d, c, Math.max(10, Math.min(Math.round(mapR.getZoom()), d.layers[0].max)));
