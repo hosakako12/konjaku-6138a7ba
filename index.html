@@ -146,6 +146,8 @@ const nendo = y => ({ id:'nendophoto' + y, ext:'png', min:14, max:18 });
 
 // 地理院タイル一覧（maps.gsi.go.jp/development/ichiran.html）で確認したID。layers は下から上の順に重ねる
 const OLD = [
+  { key:'o1928', name:'1928年頃（大阪市域のみ）', minZ:13, photo:true,
+    layers:[{ id:'ort_1928', ext:'png', min:13, max:18 }] },
   { key:'riku10', name:'1936〜1942年頃（東京23区・大阪周辺）', minZ:13, photo:true,
     layers:[{ id:'ort_riku10', ext:'png', min:13, max:18 }] },
   { key:'usa10', name:'1945〜1950年', minZ:10, photo:true, layers:[{ id:'ort_USA10', ext:'png', min:10, max:17 }] },
@@ -204,14 +206,14 @@ function parseState(s) {
   if (p.length < 3 || !n.every(v => !isNaN(v))) return null;
   return {
     z:n[0], lat:n[1], lng:n[2],
-    old: OLD.find(d => d.key === p[3]) || OLD[1],
+    old: OLD.find(d => d.key === p[3]) || OLD.find(d => d.key === 'usa10'),
     now: NEW.find(d => d.key === p[4]) || NEW[0],
     mode: MODES.includes(p[5]) ? p[5] : 'split',
     era: Math.min(4, Math.max(0, parseInt(p[6]) || 0)),
   };
 }
 const init = parseState(location.hash) || parseState(store.get()) ||
-  { z:16, lat:35.6812, lng:139.7671, old:OLD[1], now:NEW[0], mode:'split', era:0 };
+  { z:16, lat:35.6812, lng:139.7671, old:OLD.find(d => d.key === 'usa10'), now:NEW[0], mode:'split', era:0 };
 const st = { old:init.old, now:init.now, mode:init.mode, era:init.era };
 
 function newMap(id) {
