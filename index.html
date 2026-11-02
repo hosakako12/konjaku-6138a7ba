@@ -84,11 +84,28 @@
   #ticks span.on { color:var(--accent); font-weight:700; }
   #ticks span.none { text-decoration:line-through; opacity:.6; }
   .leaflet-control-attribution { font-size:11px; }
+  #here { position:absolute; z-index:950; top:40px; right:10px; width:min(330px, calc(100% - 20px));
+    max-height:calc(100% - 160px); overflow:auto; background:var(--panel); border:1px solid var(--line);
+    border-radius:10px; padding:8px 12px 10px; box-shadow:0 2px 10px rgba(0,0,0,.2); font-size:12px; }
+  #here[hidden] { display:none; }
+  #here h2 { font-size:13px; margin:0; display:flex; align-items:center; gap:6px; }
+  #here h2 button { margin-left:auto; padding:0 7px; font-size:14px; }
+  #here h3 { font-size:12px; margin:8px 0 3px; color:var(--muted); }
+  #here .row { margin:3px 0; line-height:1.5; }
+  #here .src { color:var(--muted); }
+  #here .chip { display:inline-block; padding:1px 7px; margin:2px 3px 0 0; border:1px solid var(--line);
+    border-radius:10px; cursor:pointer; white-space:nowrap; }
+  #here .chip:hover { border-color:var(--accent); }
+  #here .chip.on { background:var(--accent); color:var(--accent-fg); border-color:var(--accent); }
+  #here .chip.no { text-decoration:line-through; opacity:.5; cursor:default; }
+  #here .miss { color:var(--muted); margin-top:3px; }
+  #hereBtn.on { background:var(--accent); color:var(--accent-fg); border-color:var(--accent); }
   @media (max-width:720px) {
     header h1, .wide { display:none; }
     select { max-width:46vw; }
     #q { width:auto; flex:1; min-width:0; }
-    .grp.search { flex:1 1 100%; }
+    .grp.search { flex:1 1 100%; min-width:0; }
+    .grp.search button { padding:5px 6px; }
     #maps { flex-direction:column; }
     #mapL { border-right:0; border-bottom:2px solid var(--bg); }
     #ticks { font-size:10px; }
@@ -115,6 +132,7 @@
     <input id="q" type="search" placeholder="地名・住所・緯度経度で検索" enterkeyhint="search">
     <button id="go">検索</button>
     <button id="loc">現在地</button>
+    <button id="hereBtn" title="今見ている付近で見られる地図・写真の一覧">この付近</button>
     <button id="copy">URLコピー</button>
   </div>
   <div class="grp wide">
@@ -128,6 +146,7 @@
   <div id="mapL" class="map"><div class="label" id="labelL"></div><div class="cross"></div></div>
   <div id="mapR" class="map">
     <div class="label" id="labelR"></div><div class="cross"></div>
+    <div id="here" hidden></div>
     <div id="swipeLine"><div id="handle" title="ドラッグで境目を動かす">⇔</div></div>
     <div id="timeBox">
       <div id="eraHead">
@@ -385,6 +404,7 @@ function applyLayers() {
   if (st.mode !== 'split') layROld.addTo(mapR);
   if (st.mode === 'time') renderTime();
   updateClip(); updateLabels(); updateHint(); saveState();
+  if (typeof renderHere === 'function') renderHere();
 }
 
 function renderTime() {
@@ -555,6 +575,7 @@ function probeAll() {
     buildOldOptions();
     if (changed) applyLayers();
     else if (st.mode === 'time') renderTime();
+    renderHere();
     updateLabels();
   }, 400);
 }
@@ -687,8 +708,91 @@ $('copy').onclick = async ev => {
   setTimeout(() => btn.textContent = 'URLコピー', 1500);
 };
 
+// 「この付近」パネル。画面の中心で見られる地形図・空中写真を一覧にし、押すとその図に切り替える
+const hereBox = $('here');
+function hereOpen(open) {
+  hereBox.hidden = !open;
+  $('hereBtn').classList.toggle('on', open);
+  try { localStorage.setItem('konjaku-here', open ? '1' : '0'); } catch {}
+  if (open) renderHere();
+}
+$('hereBtn').onclick = () => hereOpen(hereBox.hidden);
+L.DomEvent.disableClickPropagation(hereBox);
+L.DomEvent.disableScrollPropagation(hereBox);
+
+function pickOld(d) {
+  if (st.mode === 'time') {
+    const kind = d.photo ? 'photo' : 'map', save = st.kind;
+    st.kind = kind;
+    if (timeSteps(true).includes(d)) { st.eraKey = d.key; applyLayers(); return; }
+    st.kind = save;
+    setMode('swipe');
+  }
+  st.old = d;
+  $('oldSel').value = d.key;
+  applyLayers();
+}
+function renderHere() {
+  if (hereBox.hidden) return;
+  const cur = curOld(), el = (tag, cls, text) => {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  };
+  const chip = (d, text) => {
+    const c = el('span', 'chip' + (d === cur ? ' on' : '') + (avail[d.key] === false ? ' no' : ''), text);
+    c.title = d.name;
+    if (avail[d.key] !== false) c.onclick = () => pickOld(d);
+    return c;
+  };
+  const row = (label, src, chips) => {
+    const r = el('div', 'row');
+    r.append(el('b', '', label), ' ', el('span', 'src', src), el('br'));
+    chips.forEach(c => r.append(c));
+    return r;
+  };
+  hereBox.innerHTML = '';
+  const close = el('button', '', '×');
+  close.title = '閉じる';
+  close.onclick = () => hereOpen(false);
+  const h = el('h2', '', 'この付近で見られるもの');
+  h.append(close);
+  hereBox.append(h);
+
+  hereBox.append(el('h3', '', '地形図'));
+  kjHere.forEach(set => hereBox.append(row(`${set.n}周辺`, '今昔マップ',
+    set.e.map(e => chip(kjDef(set, e), e[0] + (e[1] === '2man' ? '（2万）' : ''))))));
+  MW_DEFS.forEach(d => {
+    const r = sheetAt(d, mapR.getCenter());
+    if (!r) return;
+    const label = { mw50k:'5万分1', mw200c:'20万分1地勢図', mw200t:'20万分1帝国図' }[d.key];
+    const when = d === MW_DEF ? sheetYear(r) : d === TEIKOKU_DEF ? '1906〜44年のいずれか' : '戦前';
+    hereBox.append(row(label, `図幅「${r[5]}」`, [chip(d, when)]));
+  });
+  if (!kjHere.length) hereBox.append(el('div', 'miss', '今昔マップ（年代別の地形図）はこの付近に無し'));
+
+  hereBox.append(el('h3', '', '空中写真（国土地理院）'));
+  const have = PHOTOS.filter(d => avail[d.key]);
+  const r = el('div', 'row');
+  have.forEach(d => r.append(chip(d, d.key === 'airphoto' ? '2004〜（簡易）' : NENDO.includes(+d.short) ? d.short : d.name)));
+  r.append(chip(LATEST_PHOTO, '最新'));
+  hereBox.append(r);
+  const missing = PHOTOS.filter(d => avail[d.key] === false && !d.key.startsWith('n') &&
+    !['o1928', 'riku10'].includes(d.key)).map(d => d.name);
+  if (missing.length) hereBox.append(el('div', 'miss', 'この付近に無し：' + missing.join('、')));
+  if (PHOTOS.some(d => avail[d.key] === undefined)) hereBox.append(el('div', 'miss', '確認中…'));
+  hereBox.append(el('div', 'miss', `写真の有無は画面の中心をズーム${Math.round(mapR.getZoom())}で調べた結果です`));
+
+  if (avail[SWALE.key]) {
+    hereBox.append(el('h3', '', 'その他'));
+    hereBox.append(el('div', 'row')).append(chip(SWALE, '明治期の低湿地'));
+  }
+}
+
 setMode(st.mode);
 probeAll();
+hereOpen((() => { try { return localStorage.getItem('konjaku-here'); } catch { return null; } })() !== '0' && innerWidth > 720);
 </script>
 </body>
 </html>
